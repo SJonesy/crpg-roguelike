@@ -1,18 +1,26 @@
 extern crate sdl2;
 
-use sdl2::event::Event;
-use sdl2::image::{InitFlag, LoadTexture};
-use sdl2::keyboard::Keycode;
-use sdl2::pixels::Color;
-use sdl2::rect::Rect;
-use std::time::Duration;
+mod renderer;
 
-use specs::prelude::*;
+use std::fs;
+use std::fs::File;
+use std::io::Read;
+use std::time::Duration;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
+use sdl2::image::InitFlag;
+
+
+const BUFF_SIZE: usize = 1048576;
+
 
 fn main() {
+    // Setup
     let sdl_context = sdl2::init().unwrap();
     let _image_context = sdl2::image::init(InitFlag::PNG).unwrap();
-
+    let mut event_pump = sdl_context.event_pump().unwrap();
+    
+    // Initialize window and define layout boundaries
     let video_subsystem = sdl_context.video().unwrap();
     let window = video_subsystem
         .window("crpg roguelite", 800, 600)
@@ -23,49 +31,24 @@ fn main() {
         .unwrap();
     let screen_width = window.size().0;
     let screen_height = window.size().1;
-    let middle_right_edge = (screen_width as f32 * 0.75) as u32;
-    let middle_left_edge = 0;
-    let middle_bottom_edge = (screen_height as f32 * 0.75) as u32;
     let mut canvas = window.into_canvas().build().unwrap();
 
-    let mut event_pump = sdl_context.event_pump().unwrap();
+    let mut render_state = RenderState {
+        screen_width: screen_width,
+        screen_height: screen_height,
+        game_state: GameState::Combat,
+        background: [0; BUFF_SIZE],
+        enemy: [0; BUFF_SIZE]
+    };
 
-    canvas.set_draw_color(Color::RGB(0, 0, 0));
-    canvas.clear();
-    let right_screen_divider = Rect::new(
-        (middle_right_edge as f32 - 2.5) as i32,
-        0i32,
-        5u32,
-        middle_bottom_edge,
-    );
-    let left_screen_divider = Rect::new(
-        (middle_left_edge as f32 - 2.5) as i32,
-        0i32,
-        5u32,
-        middle_bottom_edge,
-    );
-    let bottom_screen_divider = Rect::new(
-        0i32,
-        (middle_bottom_edge as f32 - 2.5) as i32,
-        middle_right_edge,
-        5u32,
-    );
+    let mut buffer: [u8; BUFF_SIZE] = [0; BUFF_SIZE];
+    let _size = get_file_bytes(String::from("assets/field.png"), &mut buffer);
+    render_state.background.clone_from_slice(&buffer);
+    buffer = [0; BUFF_SIZE];
+    let _size = get_file_bytes(String::from("assets/zombie.png"), &mut buffer);
+    render_state.enemy.clone_from_slice(&buffer);
 
-    let texture_creator = canvas.texture_creator();
-    let enemy_texture = texture_creator.load_texture("assets/zombie.png").unwrap();
-    let background_texture = texture_creator.load_texture("assets/field.png").unwrap();
-    let background_rect = Rect::new(
-        middle_left_edge as i32,
-        0,
-        (screen_width as f32 * 0.75) as u32,
-        middle_bottom_edge,
-    );
-    let enemy_rect = Rect::new(
-        (screen_width as f32 * 0.333) as i32,
-        (screen_height as f32 * 0.5) as i32,
-        128,
-        128,
-    );
+    renderer::render(&mut canvas, render_state).unwrap();
 
     'running: loop {
         for event in event_pump.poll_iter() {
@@ -79,16 +62,35 @@ fn main() {
             }
         }
 
-        canvas
-            .copy(&background_texture, None, background_rect)
-            .unwrap();
-        canvas.copy(&enemy_texture, None, enemy_rect).unwrap();
-        canvas.set_draw_color(Color::RGB(255, 255, 255));
-        canvas.fill_rect(right_screen_divider).unwrap();
-        canvas.fill_rect(left_screen_divider).unwrap();
-        canvas.fill_rect(bottom_screen_divider).unwrap();
-        canvas.present();
-
         ::std::thread::sleep(Duration::new(0, 1_000_000_000u32 / 60));
     }
+}
+
+#[derive(Debug)]
+pub struct RenderState {
+    pub screen_width: u32,
+    pub screen_height: u32,
+    pub game_state: GameState,
+    pub background: [u8; BUFF_SIZE],
+    pub enemy: [u8; BUFF_SIZE]
+}
+
+#[derive(Debug, PartialEq)]
+pub enum GameState {
+    Exploring,
+    Combat,
+    InMenu
+}
+
+fn get_file_bytes(filename: String, buffer: &mut [u8; BUFF_SIZE]) -> usize {
+    let mut f = File::open(&filename).expect("no file found");
+    let file_size = fs::metadata(&filename).expect("unable to read metadata").len();
+    let mut tmp_buffer = vec![0; file_size as usize];
+    f.read(&mut tmp_buffer).expect("buffer overflow");
+
+    for (i, byte) in tmp_buffer.iter().enumerate() {
+        buffer[i] = *byte;
+    }
+
+    file_size as usize
 }
